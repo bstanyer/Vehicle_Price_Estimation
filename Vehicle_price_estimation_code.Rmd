@@ -1,0 +1,487 @@
+---
+title: "Brandon_Stanyer_Final_Project_Code"
+output: html_document
+date: "2023-12-05"
+---
+
+```{r}
+library(dplyr)
+library(e1071)
+library(class)
+library(caret)
+library(rpart)
+library(rattle)
+library(arules)
+library(FNN)
+library(xgboost)
+library(gbm)
+library(randomForest)
+```
+
+```{r}
+#read in dataset
+usedCars <- read.csv("/Users/bstanyer/Desktop/IST 707 - Applied Machine Learning/Final Project/used_cars.csv")
+```
+
+```{r}
+# identifying variable types for alteration
+str(usedCars)
+```
+
+```{r}
+# converting brand, model, year, fuel type, engine, transmission, ext color, int color accident, and clean title to factor
+usedCars$brand <- factor(usedCars$brand)
+usedCars$model <- factor(usedCars$model)
+usedCars$engine <- factor(usedCars$engine)
+usedCars$transmission <- factor(usedCars$transmission)
+usedCars$ext_col <- factor(usedCars$ext_col)
+usedCars$int_col <- factor(usedCars$int_col)
+
+# year should be ordered since it is an ordinal variable
+usedCars$model_year <- factor(usedCars$model_year, ordered = TRUE, levels = c(1974:2024))
+
+# accident and clean title have their labels changed for ease of use
+usedCars$accident <- factor(usedCars$accident, 
+                            levels = c("None reported","At least 1 accident or damage reported",""), 
+                            labels = c("None", "At least 1", NA))
+usedCars$clean_title <- factor(usedCars$clean_title, levels = c("Yes",""), labels = c("Yes","No"))
+
+# fuel type had multiple items representing no entry, all three have been relabeled as NA
+usedCars$fuel_type <- factor(usedCars$fuel_type,
+                             levels = c("" , "–", "Diesel", "E85 Flex Fuel", "Gasoline", "Hybrid", "not supported", "Plug-In Hybrid"), 
+                             labels = c(NA , NA, "Diesel", "E85 Flex Fuel", "Gasoline", "Hybrid", NA, "Plug-In Hybrid"))
+```
+
+```{r}
+# removing commas and mi label from the mileage column
+# attribute is converted to integer from character
+usedCars$milage <- gsub(",", "", usedCars$milage, fixed = TRUE)
+usedCars$milage <- gsub(" mi.", "", usedCars$milage, fixed = TRUE)
+usedCars$milage <- as.integer(usedCars$milage)
+```
+
+```{r}
+# removing commas and $ label from the price column
+# attribute is converted to integer from character
+usedCars$price <- gsub(",", "", usedCars$price, fixed = TRUE)
+usedCars$price <- gsub("$", "", usedCars$price, fixed = TRUE)
+usedCars$price <- as.numeric(usedCars$price)
+```
+
+```{r}
+# removing outliers, cars greater than $100,000
+usedCars <- usedCars[which(usedCars$price < 100000),]
+
+# discretize price for the models
+priceIntervals <- c(seq(from = 0, to =100000, by = 500))
+
+usedCars$discPrice <- discretize(usedCars$price, method = "fixed", breaks = priceIntervals)
+```
+
+
+```{r}
+# comparing the new structure of the dataset after transforming variables
+str(usedCars)
+```
+
+PART 2 - IDENTIFYING KEY CHARACTERISTICS & DISTRIBUTION (EDA)
+
+```{r}
+#identifying means and distributions in the data
+summary(usedCars)
+```
+
+```{r}
+#looking for NA values in each column. It appears none have NA values
+sum(is.na(usedCars$brand))
+sum(is.na(usedCars$model))
+sum(is.na(usedCars$model_year))
+sum(is.na(usedCars$milage))
+sum(is.na(usedCars$fuel_type))
+sum(is.na(usedCars$engine))
+sum(is.na(usedCars$transmission))
+sum(is.na(usedCars$ext_col))
+sum(is.na(usedCars$int_col))
+sum(is.na(usedCars$accident))
+sum(is.na(usedCars$clean_title))
+sum(is.na(usedCars$price))
+```
+
+
+```{r}
+ggplot(data = usedCars) + geom_bar(aes(brand), fill = "#FC4E07") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggplot(data = usedCars) + geom_bar(aes(model), fill = "steelblue")
+ggplot(data = usedCars) + geom_bar(aes(model_year), fill = "#E7B800") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggplot(data = usedCars) + geom_bar(aes(fuel_type), fill = "#52854C")
+```
+
+
+
+
+PART 3 - MAKING MODELS FOR PREDICTING PRICE
+
+```{r}
+# setting seed for reproduction  
+set.seed(99)
+
+# splitting into training and test datasets
+# use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), nrow(usedCars), replace=TRUE, prob=c(0.80,0.20))
+trainset  <- usedCars[sample, ]
+testset   <- usedCars[!sample, ]
+```
+
+
+```{r}
+# creating a traditional decision tree for price based on all variables
+tree1 <- rpart(price ~ brand + model_year, trainset, method = "anova", control = rpart.control(minsplit = 2, maxdepth = 25))
+fancyRpartPlot(tree1)
+```
+
+```{r}
+tree1pred <- predict(tree1, testset)
+testset$prediction <- tree1pred
+RMSE(pred = tree1pred, obs = testset$price)
+```
+
+```{r}
+#plotting the results. It apppears that there are not enough branches in the tree to adequetly classify the data
+testset$prediction <- tree1pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+# creating a traditional decision tree for price based on all variables
+tree2 <- rpart(price ~ brand + model + milage + model_year + accident + clean_title, trainset, method = "anova", control = rpart.control(minsplit = 2, maxdepth = 20, cp = 0))
+fancyRpartPlot(tree2)
+```
+
+
+```{r}
+tree2pred <- predict(tree2, testset)
+testset$prediction <- tree2pred
+head(testset, 50)
+RMSE(pred = tree2pred, obs = testset$price)
+```
+
+```{r}
+#plotting the results. This model appears to be much better differentiated for the different vehicles. The clear correlation between the predicted and the actual price indicate the model is at least partially effective. However, there is still a large of spread which indicates our model could be much more accurate
+testset$prediction <- tree2pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+# creating a traditional decision tree for price based on all variables
+# tree3 <- rpart(discPrice ~ brand + model + milage + model_year + accident + clean_title, trainset, control = rpart.control(minsplit = 2, maxdepth = 20, cp = 0))
+# fancyRpartPlot(tree2)
+```
+
+
+```{r}
+# creating a dataframe with all numeric in order to use knn 
+UsedCarsNumeric <- usedCars
+UsedCarsNumeric$brand <- as.numeric(usedCars$brand)
+UsedCarsNumeric$model <- as.numeric(usedCars$model)
+UsedCarsNumeric$model_year <- as.numeric(usedCars$model_year)
+UsedCarsNumeric$fuel_type <- as.numeric(usedCars$fuel_type)
+UsedCarsNumeric$accident <- as.numeric(usedCars$accident)
+UsedCarsNumeric$clean_title <- as.numeric(usedCars$clean_title)
+
+# splitting into training and test datasets
+# use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), nrow(UsedCarsNumeric), replace=TRUE, prob=c(0.80,0.20))
+trainsetNumeric  <- UsedCarsNumeric[sample, ]
+testsetNumeric   <- UsedCarsNumeric[!sample, ]
+```
+
+
+```{r}
+# building and testing KNN model
+knnModel1 <- knn(trainsetNumeric[,c("brand","model","milage","model_year")], 
+                 testsetNumeric[,c("brand","model","milage","model_year")], 
+                 trainsetNumeric$discPrice, 
+                 k = 250)
+```
+
+```{r}
+# confusion matrix
+cm <- table(knnModel1, testsetNumeric$discPrice)
+
+accuracy <- sum(diag(cm))/length(testsetNumeric$discPrice)
+sprintf("Accuracy: %.2f%%", accuracy*100)
+
+# KNN is clearly not a good tool to use for this problem. We will try a knn model for regression
+```
+
+```{r}
+#creating a function to calculate the mean squared error of a model
+rmse1 = function(actual, predicted) {
+  sqrt(mean((actual - predicted) ^ 2))
+}
+
+knnReg1 <- knn.reg(trainsetNumeric[,c("brand","model","milage","model_year")], 
+        testsetNumeric[,c("brand","model","milage","model_year")], 
+        trainsetNumeric$price, 
+        k = 3)
+
+rmse1(knnReg1$pred, testsetNumeric$price)
+
+# The model appears to making predictions, but the results are still far outside what we hope for. Right now this model is on average $17,000 off on its predictions of price
+
+knnReg2 <- knn.reg(trainsetNumeric[,c("brand","model","milage","model_year", "fuel_type", "accident", "clean_title")], 
+        testsetNumeric[,c("brand","model","milage","model_year", "fuel_type", "accident", "clean_title")], 
+        trainsetNumeric$price, 
+        k = 200)
+
+rmse1(knnReg2$pred, testsetNumeric$price)
+
+#adding on the extra variables does not change the output
+```
+
+```{r}
+#plotting the results. Some correlation can be seen between the variables, but the spread between the points indicates that this is not an effective model
+testsetNumeric$prediction <- knnReg1$pred
+ggplot(testsetNumeric, aes(x = prediction, y = price)) + geom_point()
+```
+```{r}
+#plotting the results. Some correlation can be seen between the variables, but the spread between the points indicates that this is not an effective model
+testsetNumeric$prediction <- knnReg2$pred
+ggplot(testsetNumeric, aes(x = prediction, y = price)) + geom_point()
+```
+
+
+```{r}
+# when looking carefully through the data frame, it appears that the model is very good for some of the data and very poor for other parts of the data. One can infer that with these poorly classified vehicles that there may not be enough data points to find a comparable vehicle and price
+
+df <- data.frame(testsetNumeric$price, knnReg1$pred)
+head(df, 50)
+```
+
+```{r}
+# creating an svm model for dataset
+svm1 <- svm(price ~ brand + model + milage + model_year + accident + clean_title, data = trainset, na.action = na.omit, kernel = "linear")
+
+svm1pred <- predict(svm1, testset)
+
+RMSE(svm1pred, testset$price)
+```
+
+```{r}
+#plotting the results. Some correlation can be seen between the variables, but the spread between the points indicates that this is not an effective model
+testset$prediction <- svm1pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+# creating an svm model for dataset with RADIAL kernel. 
+svm2 <- svm(price ~ brand + model + milage + model_year + accident + clean_title, data = trainset, na.action = na.omit, kernel = "radial")
+
+svm2pred <- predict(svm2, testset)
+
+RMSE(svm2pred, testset$price)
+```
+
+```{r}
+#plotting the results. It is clearly not as effective as the linear kernel.
+testset$prediction <- svm2pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+# creating an svm model for dataset WITH CROSS VALIDATION
+svm3 <- svm(price ~ brand + model + milage + model_year + accident + clean_title, data = trainset, na.action = na.omit, kernel = "linear", cross = 3)
+
+svm3pred <- predict(svm3, testset)
+
+RMSE(svm3pred, testset$price)
+```
+
+```{r}
+#plotting the results. Cross Validation did not improve the results
+testset$prediction <- svm3pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+# creating an svm model for dataset WITH MORE ATTRIBUTES
+svm4 <- svm(price ~ brand + model + milage + model_year + accident + clean_title + fuel_type + transmission + ext_col, data = trainset, na.action = na.omit, kernel = "linear", cross = 3)
+
+svm4pred <- predict(svm4, testset)
+
+RMSE(svm4pred, testset$price)
+```
+
+```{r}
+#plotting the results. The addition of more attributes improved the model very slightly
+testset$prediction <- svm4pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+#plotting the same results, but labeling COLOR as YEAR
+testset$prediction <- svm4pred
+ggplot(testset, aes(x = prediction, y = price, color = model_year)) + geom_point()
+```
+
+```{r}
+#plotting the same results, but labeling COLOR as BRAND
+testset$prediction <- svm4pred
+ggplot(testset, aes(x = prediction, y = price, color = brand)) + geom_point()
+```
+
+```{r}
+trainsetGBM <- trainset
+trainsetGBM$model <- as.numeric(trainsetGBM$model)
+# creating an gbm model. gbm does not allow me to use the model attribute since there are so many factors. So this needed to be converted to numeric
+gbm1 <- gbm(price ~ brand + model + milage + model_year + accident + clean_title + fuel_type + transmission + ext_col, data = trainsetGBM, n.trees = 25)
+
+gbm1pred <- predict(gbm1, testset)
+
+RMSE(gbm1pred, testset$price)
+```
+
+```{r}
+#plotting the results. The results are moderately good compared to the other models
+testset$prediction <- gbm1pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+```{r}
+# rf1 <- randomForest(price ~ brand + model + milage + model_year + accident + clean_title + fuel_type + transmission + ext_col, data = trainsetGBM, ntree = 25)
+
+# rf1pred <- predict(rf1, testset)
+
+# RMSE(rf1pred, testset$price)
+```
+
+AFTER INITIAL MODELS, LETS REMOVE MORE OUTLIERS AND TRY AGAIN
+```{r}
+# using a glimpse to decide how to remove outliers in brand
+summary(usedCars$brand)
+```
+
+```{r}
+# I chose to remove all vehicles that have a brand with less than 10 cars in the dataset
+brandsToRemove <- c("Aston","Bugatti","Ferrari","FIAT","Karma","Lamborghini","Lotus","Lucid","Maybach",
+                     "McLaren","Mercury","Plymouth","Polestar","Rolls-Royce", "Saab","Saturn","Scion","smart","Suzuki")
+
+brandsToKeep <- c("Acura","Alfa","Audi","Bentley","BMW","Buick","Cadillac", "Chevrolet", "Chrysler","Dodge","Ford",
+                  "Genesis","GMC","Honda","Hummer","Hyundai","INFINITI","Jaguar","Jeep","Kia","Land","Lexus",
+                  "Lincoln","Maserati","Mazda","Mercedes-Benz","MINI","Mitsubishi","Nissan","Pontiac","Porsche",
+                  "RAM","Rivian","Subaru","Tesla","Toyota","Volkswagen","Volvo")
+
+usedCarsTemp <- usedCars
+usedCarsTemp <- filter(usedCarsTemp, brand != "Aston")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Ferrari")
+usedCarsTemp <- filter(usedCarsTemp, brand != "FIAT")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Karma")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Lamborghini")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Lotus")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Lucid")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Maybach")
+usedCarsTemp <- filter(usedCarsTemp, brand != "McLaren")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Mercury")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Plymouth")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Polestar")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Rolls-Royce")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Saab")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Saturn")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Scion")
+usedCarsTemp <- filter(usedCarsTemp, brand != "smart")
+usedCarsTemp <- filter(usedCarsTemp, brand != "Suzuki")
+
+summary(usedCarsTemp$brand)
+str(usedCarsTemp)
+
+usedCars <- usedCarsTemp
+```
+
+```{r}
+# removing vehicles with year 2000 or later
+usedCarsTemp <- usedCars[which(usedCars$model_year >= 2000),]
+summary(usedCarsTemp$model_year)
+
+usedCars <- usedCarsTemp
+```
+```{r}
+usedCarsTemp <- filter(usedCars, fuel_type == "Gasoline")
+usedCars <- usedCarsTemp
+```
+
+
+
+```{r}
+# narrowing the prices further. Removing any vehicles with price over $75,000
+usedCarsTemp <- usedCars[which(usedCars$price <= 75000),]
+summary(usedCarsTemp$price)
+
+usedCars <- usedCarsTemp
+```
+
+```{r}
+# one vehicle is incredibly far off in all of the models and needs to be removed manually
+# usedCarsTemp <-  filter(usedCars, model != "R8 5.2 quattro Spyder")
+# usedCars <- usedCarsTemp
+```
+
+
+```{r}
+str(usedCars)
+```
+
+```{r}
+summary(usedCars)
+```
+
+```{r}
+# splitting into training and test datasets
+# use 80% of dataset as training set and 20% as test set
+set.seed(99)
+
+sample <- sample(c(TRUE, FALSE), nrow(usedCars), replace=TRUE, prob=c(0.80,0.20))
+trainset  <- usedCars[sample, ]
+testset   <- usedCars[!sample, ]
+```
+
+
+```{r}
+# creating an svm model for dataset NOW THAT WE HAVE SUBSETTED FURTHER
+svm5 <- svm(price ~ brand + model + milage + model_year + transmission, data = trainset, na.action = na.omit, kernel = "linear", cross = 3)
+
+svm5pred <- predict(svm5, testset)
+
+RMSE(svm5pred, testset$price)
+```
+
+```{r}
+testset$prediction <- svm5pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+
+```{r}
+
+#plotting the same results, but labeling COLOR as YEAR
+testset$prediction <- svm5pred
+ggplot(testset, aes(x = prediction, y = price, color = brand)) + geom_point()
+```
+
+```{r}
+index <- which.max((testset$price-testset$prediction)^2)
+testset[index,]
+```
+
+```{r}
+# decision tree 2 with the modified dataset
+tree2 <- rpart(price ~ brand + model + milage + model_year + accident + clean_title, trainset, method = "anova", control = rpart.control(minsplit = 2, maxdepth = 20, cp = 0))
+tree2pred <- predict(tree2, testset)
+testset$prediction <- tree2pred
+RMSE(pred = tree2pred, obs = testset$price)
+testset$prediction <- tree2pred
+ggplot(testset, aes(x = prediction, y = price)) + geom_point()
+```
+
+
+
+
+
