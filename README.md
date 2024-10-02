@@ -5,3 +5,4 @@ This project focused on building machine learning models to predict the prices o
 
 While SVM models demonstrated high accuracy in predicting vehicle prices, their complexity and tuning challenges make them less practical for business applications. Decision Trees and k-NN models, though easier to interpret, still fell short in predictive accuracy. This project highlights the potential of machine learning to improve pricing in the used vehicle market but underscores the need for further refinement and larger datasets to create more reliable models. Overall, it represents a significant step toward automating vehicle price estimation, benefiting both buyers and sellers.
 
+<img width="650" alt="Picture2" src="https://github.com/user-attachments/assets/8f0a6b78-bb16-4354-99c7-dcaf78cd5a68">
