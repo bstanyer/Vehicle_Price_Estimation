@@ -1,4 +1,4 @@
-# Vehicle_Price_Estimation
+# Vehicle Price Estimation (R)
 ### Using k-means clustering and other ML algorithms to predict vehicle prices based on attributes.
 
 This project focused on building machine learning models to predict the prices of used vehicles based on data from 4,009 listings collected in 2023. The dataset included 12 attributes such as brand, model, year, mileage, and accident history, all of which play crucial roles in determining a vehicle's value. To make accurate predictions, the data was preprocessed, and several models, including Decision Trees, k-Nearest Neighbors (k-NN), and Support Vector Machines (SVM), were tested. Exploratory data analysis and feature engineering helped improve model performance, with Decision Trees showing promise in handling the complexity of vehicle attributes and price relationships.
